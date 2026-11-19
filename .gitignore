@@ -1,0 +1,38 @@
+# Keil build outputs
+MDK-ARM/HT_motor/
+MDK-ARM/DebugConfig/
+MDK-ARM/EventRecorderStub.scvd
+MDK-ARM/startup_stm32g431xx.lst
+MDK-ARM/*.uvguix.*
+MDK-ARM/*.uvoptx
+
+# Compiler and linker outputs
+*.o
+*.d
+*.crf
+*.axf
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+*.lnp
+*.dep
+*.htm
+*.build_log.htm
+
+# IDE/user-specific files
+.vscode/
+*.bak
+*.tmp
+*.zip
+
+# Unused STM32Cube CMSIS extras
+Drivers/CMSIS/DSP/
+Drivers/CMSIS/NN/
+Drivers/CMSIS/RTOS/
+Drivers/CMSIS/RTOS2/
+Drivers/CMSIS/docs/
+
+# Accidental shell output
+CCR'
