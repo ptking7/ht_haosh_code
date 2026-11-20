@@ -11,14 +11,14 @@
 #include "position_drv.h"
 #include "observer_drv.h"
 
-#define LOW_RESITOR        4.7f     //母线电压检测下端电阻(KΩ)
-#define HIGH_RESITOR       100.0f   //母线电压检测上端电阻(KΩ)
-#define SAMPLING_RESITOR   0.005f   //相电流采样电阻(Ω)
-#define MAGNIFICATION      10.0f    //采样放大倍数
+#define LOW_RESITOR        10.0f    //母线电压检测下端电阻(KΩ)
+#define HIGH_RESITOR       169.0f   //母线电压检测上端电阻(KΩ)
+#define SAMPLING_RESITOR   0.001f   //相电流采样电阻(Ω)
+#define MAGNIFICATION      (100.0f / 4.99f) //采样放大倍数
 #define ADC_RESOLUTION     4096.0f  //ADC分辨率
 #define ADC_VREF           3.3f     //ADC基准电压（V）
 #define PWM_LIMLT          7800     //限制最大占空比
-#define PWM_CYCLE          8500     //PWM周期占空比
+#define PWM_CYCLE          8500     //中心对齐PWM等效周期(2*TIM1 ARR)
 #define TS                 0.00005f //FOC执行间隔（S）
 
 #define VBUS_FACTOR            ((ADC_VREF / ADC_RESOLUTION) / (LOW_RESITOR / (LOW_RESITOR + HIGH_RESITOR))) // 母线电压计算系数
@@ -101,13 +101,13 @@ typedef enum{
 #define CW  0                        //编码器顺时针方向
 #define CCW 1                        //编码器逆时针方向
                        
-#define POLEPAIRS   7                //默认极对数
+#define POLEPAIRS   14               //默认极对数
 #define ACCELERATION 4800            //默认加速度(rpm/s)
 
-#define ENCODER_LINE 1024            //编码器线数
-#define PUL_MAX (4*ENCODER_LINE -1)  //单圈脉冲最大值
-#define PUL_MAX_HALF (PUL_MAX / 2)
-#define PUL_ANGLE_FACTOR (4095.0f/PUL_MAX)  //角度系数
+#define ENCODER_COUNTS_PER_REV 65536U       //编码器单圈计数模值
+#define PUL_MAX (ENCODER_COUNTS_PER_REV - 1U) //编码器原始值最大值
+#define PUL_MAX_HALF (ENCODER_COUNTS_PER_REV / 2U)
+#define PUL_ANGLE_FACTOR (360.0f / ENCODER_COUNTS_PER_REV) //角度系数，单位：度/计数
 
 
 
@@ -128,6 +128,7 @@ typedef struct
     u8    end_flag;           // 辨识完成标志    
     u16   count;             // 计数
     u16   wait_tim;           // 等待时间
+    u32   ls_time_sum;        // 电感测量的总计时代数
     float rs;                // 相电阻
     float ls;                // 相电感
     float lq;                // q轴电感
@@ -138,6 +139,9 @@ typedef struct
     float cur_sum;            // 电流累计值
     float cur_average[2];     // 电流平均值
     float voltage_set[2];     // 电压给定值
+    float verify_angle_deg;   // 编码器电角度验证值
+    float verify_id;          // 编码器角度下的d轴电流
+    float verify_iq;          // 编码器角度下的q轴电流
 }identify_struct;
 
 typedef struct{

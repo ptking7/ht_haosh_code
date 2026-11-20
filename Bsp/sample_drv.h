@@ -9,16 +9,17 @@ typedef struct
     u8    calib_end_flag;             // 校准完成标志
     u16   offset_cnt;                 // 基准值计算次数
     s32   bus_offset;                 // 母线电压基准值
-    s32   iu_offset;                  // U相电流偏置值
-    s32   iv_offset;                  // V相电流偏置值
-    s32   iw_offset;                  // W相电流偏置值
+    s32   ia_offset;                  // A相电流偏置值
+    s32   ib_offset;                  // B相电流偏置值
+    s32   ic_offset;                  // C相电流偏置值
     s32   bus_raw;                    // 母线电压原始值
-    s32   iu_raw;                     // U相电流原始值
-    s32   iv_raw;                     // V相电流原始值
-    s32   iw_raw;                     // W相电流原始值
-    float iu_real;                    // U相电流真实值
-    float iv_real;                    // V相电流真实值
-    float iw_real;                    // W相电流真实值
+    s32   ia_raw;                     // A相电流原始值
+    s32   ib_raw;                     // B相电流原始值，不直接采样
+    s32   ic_raw;                     // C相电流原始值
+    float ia_real;                    // A相电流真实值
+    float ib_real;                    // B相电流真实值
+    float ic_real;                    // C相电流真实值
+    float current_mag;                // 三相电流矢量幅值
     float bus_real;                   // 母线电压真实值(动态)
     float bus_calib_real;             // 母线电压真实值(校准值，静态)
     float bus_change;                 // 母线电压变化值

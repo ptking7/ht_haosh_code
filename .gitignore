@@ -36,3 +36,11 @@ Drivers/CMSIS/docs/
 
 # Accidental shell output
 CCR'
+
+# Local commissioning artifacts
+MDK-ARM/*.log
+/captures/
+debug.log
+$null
+{1
+CF2609224*.eprj2

@@ -45,38 +45,48 @@ void electrical_angle_generator(e_angle_struct *p)
  */
 void calculate_encoder_data(e_angle_struct *p)
 {
-    // ------------------------------------------------------------------------
-    // 1. 编码器方向处理
-    // ------------------------------------------------------------------------
-    // 若编码器安装方向与电机定义方向相反，可通过 dir 标志进行取反修正。
-    // p->dir == 1 表示需要反向，将原始计数值变换为 (最大值 - 原始值) 实现反向计数。
+    s32 encoder_max = p->encoder_val_max;
+    s32 normalized_encoder;
+    s32 electrical_val;
+    s32 relative;
+
+    if(encoder_max <= 0)
+    {
+        p->electrical_angle_pu = 0.0f;
+        return;
+    }
+
+    /*
+     * Work on a local copy so encoder_val always remains the raw sensor value.
+     * Direction reversal and offset subtraction are normalized before scaling.
+     */
+    normalized_encoder = p->encoder_val;
     if(p->dir == 1)
     {
-        p->encoder_val = p->encoder_val_max - p->encoder_val;   // 方向取反
+        normalized_encoder = encoder_max - normalized_encoder;
     }
-    
-    // ------------------------------------------------------------------------
-    // 2. 计算电角度
-    // ------------------------------------------------------------------------
-    // 计算步骤：
-    //   (1) 原始编码器值减去校准零点偏移（encoder_val - calib_offset）
-    //   (2) 乘以极对数（pole_pairs），将机械角度转换为电角度（每对极对应360°电角度）
-    //   (3) 对编码器最大值取模（% p->encoder_val_max），得到在一个编码器周期内的计数值
-    s32 electrical_val = ((p->encoder_val - p->calib_offset) * p->pole_pairs) % p->encoder_val_max;
-    
-    // ------------------------------------------------------------------------
-    // 3. 修正可能出现的负值（由于校准偏移或取模运算导致）
-    // ------------------------------------------------------------------------
-    // 例如，若 (encoder_val - calib_offset) 为负，取模结果可能仍为负，导致电角度负值。
-    if(electrical_val < 0)                                              //处理校准可能带来的负值
+
+    normalized_encoder %= encoder_max;
+    if(normalized_encoder < 0)
     {
-        electrical_val = electrical_val + p->encoder_val_max;           //计算电角度
+        normalized_encoder += encoder_max;
     }
-    
-    // ------------------------------------------------------------------------
-    // 4. 计算电角度标幺值
-    // ------------------------------------------------------------------------
-    p->electrical_angle_pu = (float)electrical_val / (float)p->encoder_val_max;
+
+    relative = normalized_encoder - p->calib_offset;
+    relative %= encoder_max;
+    if(relative < 0)
+    {
+        relative += encoder_max;
+    }
+
+    electrical_val = (relative * p->pole_pairs) % encoder_max;
+    if(electrical_val < 0)
+    {
+        electrical_val += encoder_max;
+    }
+
+    p->electrical_angle_pu =
+        (float)electrical_val / (float)encoder_max;
 }
 
 

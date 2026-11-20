@@ -58,7 +58,7 @@ void motor_struct_init(void)
     // pole_pairs: 电机极对数（永磁体磁极对数 = 磁钢数量/2）
     mc.e_angle.pole_pairs = POLEPAIRS;
     // encoder_val_max: 编码器单圈脉冲数（增量式编码器线数 × 4倍频后的值，或绝对式编码器最大码值）
-    mc.e_angle.encoder_val_max = PUL_MAX;
+    mc.e_angle.encoder_val_max = ENCODER_COUNTS_PER_REV;
     // ts: 控制周期（秒），用于角度积分和观测器时间基准
     mc.e_angle.ts = TS;
 
@@ -186,25 +186,25 @@ void motor_struct_init(void)
     // ============================================================================
     // 14. 电流环PID参数（Iq、Id环）
     // ============================================================================
-    mc.iq_pid.kp = 0.2f;                     // 比例系数
-    mc.iq_pid.ki = 0.002f;                   // 积分系数
-    mc.iq_pid.out_max = 10;                   // 输出电压上限（伏特）
-    mc.iq_pid.out_min = -10;                  // 输出电压下限（伏特）
+    mc.iq_pid.kp = 0.08f;                    // 零速电流环调试增益
+    mc.iq_pid.ki = 0.006f;                   // 每个50us控制周期的积分系数
+    mc.iq_pid.out_max = 0.5f;
+    mc.iq_pid.out_min = -0.5f;
 
-    mc.id_pid.kp = 0.2f;
-    mc.id_pid.ki = 0.002f;
-    mc.id_pid.out_max = 10;
-    mc.id_pid.out_min = -10;
+    mc.id_pid.kp = 0.08f;
+    mc.id_pid.ki = 0.006f;
+    mc.id_pid.out_max = 0.5f;
+    mc.id_pid.out_min = -0.5f;
 
     // ============================================================================
     // 15. 速度环PID参数（带分段限制）
     // ============================================================================
-    mc.spd_pid.kp = 0.001f;                  // 默认比例系数
+    mc.spd_pid.kp = 0.05f;                   // 外轴rpm误差到Iq电流
     mc.spd_pid.kp_max = 0.005f;               // 比例系数最大值（用于变速调参）
     mc.spd_pid.kp_min = 0.001f;               // 比例系数最小值
-    mc.spd_pid.ki = 0.000002f;               // 积分系数
-    mc.spd_pid.out_max = 6;                   // 输出上限（对应Iq电流参考值，安培）
-    mc.spd_pid.out_min = -6;                  // 输出下限
+    mc.spd_pid.ki = 0.002f;                  // 每20ms速度环周期积分系数
+    mc.spd_pid.out_max = 0.8f;                // 速度环Iq输出限幅
+    mc.spd_pid.out_min = -0.8f;
 
     // ============================================================================
     // 16. 位置环PID参数（用于位置伺服控制）

@@ -9,12 +9,13 @@
   */
 /* 包含头文件 ----------------------------------------------------------------*/
 
-#include "sample_drv.h"                                                             
+#include "sample_drv.h"
+#include <math.h>
 
 /**
  * 函数功能: 获取相电流和母线电压的基准值（偏移量校准）
  * 输入参数: p - sample_struct结构体指针，包含ADC原始值、累加和、偏移量、校准标志等
- * 返回参数: 无（结果存入p->iu_offset, p->iw_offset, p->bus_offset, p->bus_calib_real, p->calib_end_flag）
+ * 返回参数: 无（结果存入p->ia_offset, p->ic_offset, p->bus_offset, p->bus_calib_real, p->calib_end_flag）
  * 说    明: 
  *         1. 由于电流传感器和电压分压电路存在零点漂移，需要测量无电流/电压时的ADC平均值作为偏移量。
  *         2. 采样1024次原始值并累加，最后右移10位（除以1024）得到平均值。
@@ -28,8 +29,8 @@ void calculate_adc_offset(sample_struct *p)
     if (p->offset_cnt == 0)
     {
         p->calib_end_flag = 0;    // 清除校准完成标志
-        p->iu_offset = 0;         // U相电流偏移累加和清零
-        p->iw_offset = 0;         // W相电流偏移累加和清零
+        p->ib_offset = 0;         // B相电流偏移累加和清零
+        p->ic_offset = 0;         // C相电流偏移累加和清零
         p->bus_offset = 0;        // 母线电压偏移累加和清零
         p->offset_cnt = 0;        // 采样计数器清零
     }
@@ -37,17 +38,17 @@ void calculate_adc_offset(sample_struct *p)
     // 采样次数未达到1024次时，累加原始ADC值
     if (p->offset_cnt < 1024)
     {
-        p->iu_offset += p->iu_raw;    // 累加U相原始值
-        p->iw_offset += p->iw_raw;    // 累加W相原始值
+        p->ib_offset += p->ib_raw;    // 累加B相原始值
+        p->ic_offset += p->ic_raw;    // 累加C相原始值
         p->bus_offset += p->bus_raw;  // 累加母线电压原始值
         p->offset_cnt++;              // 计数器递增
     }
     else
     {
         // 已累加1024次，右移10位（除以1024）求平均值
-        p->iu_offset = p->iu_offset >> 10;   // U相电流偏移量（ADC码值）
-        p->iw_offset = p->iw_offset >> 10;   // W相电流偏移量（ADC码值）
-        p->bus_offset = p->bus_offset >> 10; // 母线电压偏移量（ADC码值）
+        p->ib_offset = (p->ib_offset + 512) >> 10;   // B相电流偏移量，四舍五入
+        p->ic_offset = (p->ic_offset + 512) >> 10;   // C相电流偏移量，四舍五入
+        p->bus_offset = (p->bus_offset + 512) >> 10; // 母线电压偏移量，四舍五入
 
         // 将母线电压偏移量转换为实际电压值（乘以电压转换系数bus_factor）
         p->bus_calib_real = p->bus_offset * p->bus_factor;
@@ -60,22 +61,31 @@ void calculate_adc_offset(sample_struct *p)
 /**
  * 函数功能: 计算三相电流实际值（以流入电机中性点方向为正）
  * 输入参数: p - sample_struct结构体指针，包含ADC原始值、偏移量、方向标志、转换系数等
- * 返回参数: 无（结果存入p->iu_real, p->iv_real, p->iw_real）
+ * 返回参数: 无（结果存入p->ia_real, p->ib_real, p->ic_real）
  * 说    明: 
- *         1. 首先对U相和W相进行偏移补偿并乘以转换系数得到实际电流值。
- *         2. 根据基尔霍夫电流定律，三相电流之和为零：Iu + Iv + Iw = 0，因此 Iv = -Iu - Iw。
+ *         1. 首先对A相和C相进行偏移补偿并乘以转换系数得到实际电流值。
+ *         2. 根据基尔霍夫电流定律，三相电流之和为零：ia + ib + ic = 0，因此 ib = -ia - ic。
  *         3. 电流方向定义：以流入电机中性点为正方向。如果传感器方向与定义相反，可通过p->current_dir（±1）调整。
  *         4. 转换系数p->current_factor将ADC原始值（减去偏移后）转换为安培，例如：current_factor = 参考电压/(ADC分辨率*采样电阻*运放增益)。
- *         5. 只采样U相和W相，V相通过计算得到，以减少ADC通道和计算量。
+ *         5. 只采样A相和C相，B相通过计算得到，以减少ADC通道和计算量。
  */
 void calculate_phase_current(sample_struct *p)
 {
-    // 计算U相实际电流： (原始值 - 偏移量) * 方向 * 转换系数
-    p->iu_real = p->current_dir * (p->iu_raw - p->iu_offset) * p->current_factor;
-    // 计算W相实际电流
-    p->iw_real = p->current_dir * (p->iw_raw - p->iw_offset) * p->current_factor;
-    // 计算V相实际电流： iu + iv + iw = 0  => iv = -iu - iw
-    p->iv_real = -p->iu_real - p->iw_real;
+    // 计算B相实际电流： (原始值 - 偏移量) * 方向 * 转换系数
+    p->ib_real = p->current_dir * (p->ib_raw - p->ib_offset) * p->current_factor;
+    // 计算C相实际电流
+    p->ic_real = p->current_dir * (p->ic_raw - p->ic_offset) * p->current_factor;
+    // 计算A相实际电流： ia + ib + ic = 0  => ia = -ib - ic
+    p->ia_real = -p->ib_real - p->ic_real;
+
+    /*
+     * The current vector magnitude is independent of phase ordering and
+     * sensor polarity. Use it for identification and over-current checks.
+     */
+    {
+        float i_beta = (p->ia_real + 2.0f * p->ib_real) * 0.57735027f;
+        p->current_mag = sqrtf(p->ia_real * p->ia_real + i_beta * i_beta);
+    }
 }
 
 /**

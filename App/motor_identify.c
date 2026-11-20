@@ -34,17 +34,17 @@ void motor_identify(void)
                 mc.foc.ud = 0;                 // 直轴电压从0开始递增
                 mc.identify.count = 0;          // 计数清零（本阶段未使用）
                 mc.identify.wait_tim = 0;        // 等待计时器清零
+                mc.identify.ls_sum = 0;
+                mc.identify.ls_time_sum = 0;
                 mc.identify.flag = 1;           // 进入下一个子状态
             }
 
             /* ----- 子状态 flag = 1：逐步增加 ud 直到电流达到第一个目标值（0.6倍最大电流）----- */
             if (mc.identify.flag == 1)
             {
-                // 计算当前实际电流值：iu * ud * 1.5 / ubus
-                // 推导：ud施加于d轴，实际d轴电流 id ≈ iu（因为电角度=0，iu与id同相）
-                // 1.5 为三相电流标幺化系数（取决于Clark变换实现）
-                float current = (mc.sample.iu_real * mc.foc.ud * 1.5f) / mc.sample.bus_real;
-                if (current >= 0.6f * mc.identify.cur_max)   // 达到目标电流的60%
+                // 电角度为0时，d轴电流与A相电流基本重合
+                float current = mc.sample.current_mag;
+                if (current >= 0.5f * mc.identify.cur_max)   // 达到第一测试电流点
                 {
                     mc.identify.flag = 2;       // 进入等待稳定和记录阶段
                 }
@@ -61,7 +61,7 @@ void motor_identify(void)
                 mc.identify.wait_tim++;          // 计数器累加（每次函数调用约50~100us，需根据实际周期调整）
                 if (mc.identify.wait_tim > 4000) // 等待约0.2秒（假设周期50us，4000次=0.2s）
                 {
-                    mc.identify.cur_sum += mc.sample.iu_real;   // 累加相电流
+                    mc.identify.cur_sum += mc.sample.current_mag;
                 }
                 if (mc.identify.wait_tim >= 4100) // 再采集100次（4100-4000=100次）
                 {
@@ -75,7 +75,7 @@ void motor_identify(void)
             /* ----- 子状态 flag = 3：继续升压，直到电流达到最大电流 cur_max（第二组）----- */
             if (mc.identify.flag == 3)
             {
-                float current = (mc.sample.iu_real * mc.foc.ud * 1.5f) / mc.sample.bus_real;
+                float current = mc.sample.current_mag;
                 if (current >= mc.identify.cur_max)   // 达到最大电流
                 {
                     mc.identify.flag = 4;       // 进入等待稳定和记录阶段
@@ -93,7 +93,7 @@ void motor_identify(void)
                 mc.identify.wait_tim++;
                 if (mc.identify.wait_tim > 4000)
                 {
-                    mc.identify.cur_sum += mc.sample.iu_real;
+                    mc.identify.cur_sum += mc.sample.current_mag;
                 }
                 if (mc.identify.wait_tim >= 4100)
                 {
@@ -131,7 +131,7 @@ void motor_identify(void)
                 mc.foc.uq = 0;
                 mc.foc.ud = 0;
                 // 检查相电流是否接近0（±0.05A以内）
-                if (mc.sample.iu_real >= -0.05f && mc.sample.iu_real <= 0.05f)
+                if (mc.sample.current_mag <= 0.05f)
                 {
                     mc.identify.flag = 1;       // 电流归零，开始测试
                 }
@@ -144,12 +144,14 @@ void motor_identify(void)
                 mc.identify.wait_tim++;                    // 计时器递增（单位：函数调用周期）
 
                 // 当电流上升到平均电流的95%时，记录时间
-                if (mc.sample.iu_real >= mc.identify.cur_average[1] * 0.95f)
+                if (mc.sample.current_mag >=
+                    mc.identify.cur_average[1] * 0.95f)
                 {
                     // 电感计算公式：L = R * t / ln(1/(1-0.95)) = R * t / ln(20)
                     // ln(20) ≈ 2.9957，系数 0.334 = 1/2.9957 ≈ 0.334
                     // 0.00005 为函数调用周期（假设周期50us），WaitTim为周期数，故 t = wait_tim * 0.00005
                     mc.identify.ls_sum += mc.identify.rs * 0.334f * 0.00005f * mc.identify.wait_tim;
+                    mc.identify.ls_time_sum += mc.identify.wait_tim;
                     mc.identify.wait_tim = 0;              // 计时器复位
                     mc.identify.count++;                  // 完成一次测量，计数器+1
                     mc.identify.flag = 0;                 // 返回等待电流归零状态，进行下一次测量
@@ -164,11 +166,11 @@ void motor_identify(void)
             /* ----- 子状态 flag = 2：计算平均电感，切换到编码器对齐阶段 ----- */
             if (mc.identify.flag == 2)
             {
-                mc.identify.ls = mc.identify.ls_sum * 0.01f;   // 平均值 = 累加和 / 100
+                mc.identify.ls = mc.identify.rs * 0.334f * TS *
+                                 ((float)mc.identify.ls_time_sum * 0.01f);
                 mc.identify.ld = mc.identify.ls;             // 假设表贴式电机，ld = lq = ls
                 mc.identify.lq = mc.identify.ls;
                 mc.identify.flag = 0;
-                mc.identify.ls_sum = 0;
                 mc.identify.wait_tim = 0;
                 mc.identify.state = ENCODER_ROTOR_ALIGN;    // 进入编码器校准阶段
             }

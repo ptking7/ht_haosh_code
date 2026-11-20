@@ -4,7 +4,7 @@
 
 #include "main.h"
 
-#define CH_COUNT 3               //定义要发送的浮点数个数
+#define CH_COUNT 16              //VOFA JustFloat发送通道数
 typedef struct
 {                                                   
     float fdata[CH_COUNT];         //要发送的浮点数

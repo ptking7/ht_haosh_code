@@ -413,6 +413,11 @@
               <FileType>1</FileType>
               <FilePath>..\App\motor_global.c</FilePath>
             </File>
+            <File>
+              <FileName>motor_system.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\App\motor_system.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -442,6 +447,11 @@
               <FileName>sample_drv.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Bsp\sample_drv.c</FilePath>
+            </File>
+            <File>
+              <FileName>motor_tune.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Bsp\motor_tune.c</FilePath>
             </File>
           </Files>
         </Group>

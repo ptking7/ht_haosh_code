@@ -82,9 +82,15 @@ void calculate_svpwm(foc_struct *p)
 {
     float u1, u2, u3 = 0;
     float x, y, z = 0;
+    float ualpha_original, ubeta_original;
     float t1, t2, t1_temp, t2_temp = 0;
     u8 a, b, c, n = 0;
     u16 ta, tb, tc = 0;
+
+    ualpha_original = p->ualpha;
+    ubeta_original = p->ubeta;
+    p->ualpha = -ualpha_original;
+    p->ubeta = -ubeta_original;
 
     // ========== 1. 计算扇区判别变量 ==========
     // 将 αβ 电压转换为三个等效的相电压值（基于 60° 坐标系）
@@ -169,4 +175,7 @@ void calculate_svpwm(foc_struct *p)
             p->duty_cycle_c = tc;
             break;
     }
+
+    p->ualpha = ualpha_original;
+    p->ubeta = ubeta_original;
 }
