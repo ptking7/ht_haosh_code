@@ -18,23 +18,23 @@
 #define IDENTIFY_BUS_MIN_VOLTAGE       10.0f
 #define IDENTIFY_BUS_MAX_VOLTAGE       55.0f
 #define IDENTIFY_PHASE_OVERCURRENT     2.5f
-#define IDENTIFY_OVERCURRENT_TICKS     5U
-#define IDENTIFY_BUS_FAULT_TICKS       20U
+#define IDENTIFY_OVERCURRENT_TICKS     ((u8)(0.25f * CONTROL_TICKS_PER_MS))
+#define IDENTIFY_BUS_FAULT_TICKS       ((u8)(1.0f * CONTROL_TICKS_PER_MS))
 #define IDENTIFY_MAX_UD_VOLTAGE        0.50f
-#define IDENTIFY_TIMEOUT_TICKS         600000U
-#define IDENTIFY_PWM_START_DELAY_TICKS 200000U
-#define ENCODER_ALIGN_HOLD_TICKS       20000U
-#define ENCODER_VERIFY_HOLD_TICKS      4000U
+#define IDENTIFY_TIMEOUT_TICKS         ((u32)(30.0f * CONTROL_TICKS_PER_SECOND))
+#define IDENTIFY_PWM_START_DELAY_TICKS ((u32)(10.0f * CONTROL_TICKS_PER_SECOND))
+#define ENCODER_ALIGN_HOLD_TICKS       ((u16)(1.0f * CONTROL_TICKS_PER_SECOND))
+#define ENCODER_VERIFY_HOLD_TICKS      ((u16)(0.2f * CONTROL_TICKS_PER_SECOND))
 #define ENCODER_VERIFY_UD              0.30f
-#define CURRENT_LOOP_SETTLE_TICKS      10000U
+#define CURRENT_LOOP_SETTLE_TICKS      ((u16)(0.5f * CONTROL_TICKS_PER_SECOND))
 #define CURRENT_LOOP_TEST_ID_REF       0.30f
-#define SPEED_LOOP_DIVIDER             400U
+#define SPEED_LOOP_DIVIDER             ((u16)(0.02f * CONTROL_TICKS_PER_SECOND))
 #define SPEED_FEEDBACK_LPF             0.15f
-#define OUTPUT_GEAR_RATIO              8.0f
+#define OUTPUT_GEAR_RATIO              9.0f
 #define SPEED_IQ_RATE_LIMIT            0.02f
 #define FIXED_UD_TEST_ENABLE           0
 #define FIXED_UD_TEST_VOLTAGE          0.25f
-#define FIXED_UD_TEST_TICKS            20000U
+#define FIXED_UD_TEST_TICKS            ((u32)(1.0f * CONTROL_TICKS_PER_SECOND))
 
 static u8 pwm_started = 0;
 static u8 overcurrent_ticks = 0;
@@ -47,6 +47,18 @@ static u16 speed_angle_count = 0;
 static float speed_angle_accum = 0.0f;
 static float speed_angle_last = 0.0f;
 static float speed_feedback_rpm = 0.0f;
+static u32 open_sweep_counter = 0;
+static u8 open_mode_last = 0U;
+static u8 open_angle_hold_last = 0U;
+static float open_angle_hold_pu = 0.0f;
+static float open_dither_phase = 0.0f;
+static u8 track_angle_initialized = 0U;
+static float track_angle_filtered_pu = 0.0f;
+static u8 current_output_initialized = 0U;
+static float id_output_filtered = 0.0f;
+static float iq_output_filtered = 0.0f;
+static u8 current_angle_hold_last = 0U;
+static float current_angle_hold_pu = 0.0f;
 #if FIXED_UD_TEST_ENABLE
 static u32 fixed_ud_test_ticks = 0;
 #endif
@@ -142,6 +154,16 @@ static void encoder_align_step(void)
     float ref_min;
     float ref_max;
     float command_angle;
+    u32 open_sweep_dwell;
+    u32 open_ramp_dwell;
+    u32 open_sweep_period;
+    float open_dither_sin;
+    float open_dither_cos;
+    float open_dither_hz;
+    float open_dither_ud;
+    float track_angle_alpha;
+    float current_deadband;
+    u8 open_angle_hold;
 
     mc.foc.uq = 0.0f;
 
@@ -152,7 +174,7 @@ static void encoder_align_step(void)
             mc.foc.cos_val = 0.0f;
             if(mc.foc.ud < voltage_target)
             {
-                mc.foc.ud += 0.0001f;
+                mc.foc.ud += CONTROL_VOLTAGE_STEP;
             }
             else
             {
@@ -181,7 +203,7 @@ static void encoder_align_step(void)
             mc.foc.cos_val = 1.0f;
             if(mc.foc.ud < voltage_target)
             {
-                mc.foc.ud += 0.0001f;
+                mc.foc.ud += CONTROL_VOLTAGE_STEP;
             }
             else
             {
@@ -266,7 +288,7 @@ static void encoder_align_step(void)
             mc.foc.uq = 0.0f;
             if(mc.foc.ud < ENCODER_VERIFY_UD)
             {
-                mc.foc.ud += 0.0001f;
+                mc.foc.ud += CONTROL_VOLTAGE_STEP;
             }
             else
             {
@@ -301,7 +323,9 @@ static void encoder_align_step(void)
             clark_transform(&mc.foc);
             park_transform(&mc.foc);
 
-            mc.id_pid.fbk = mc.foc.id;
+            mc.foc.id_lpf += mc.foc.id_lpf_factor *
+                             (mc.foc.id - mc.foc.id_lpf);
+            mc.id_pid.fbk = mc.foc.id_lpf;
             pid_control(&mc.id_pid);
 
             mc.foc.ud = mc.id_pid.out;
@@ -325,8 +349,54 @@ static void encoder_align_step(void)
 
         case 6:
             calculate_encoder_data(&mc.e_angle);
+            if(track_angle_initialized == 0U)
+            {
+                track_angle_filtered_pu = mc.e_angle.electrical_angle_pu;
+                track_angle_initialized = 1U;
+            }
+            else
+            {
+                command_angle = mc.e_angle.electrical_angle_pu -
+                                track_angle_filtered_pu;
+                if(command_angle > 0.5f)
+                {
+                    command_angle -= 1.0f;
+                }
+                else if(command_angle < -0.5f)
+                {
+                    command_angle += 1.0f;
+                }
+                track_angle_alpha = motor_tune_get_track_angle_lpf();
+                if(motor_tune_get_speed_enable() != 0U)
+                {
+                    track_angle_alpha = 1.0f;
+                }
+                track_angle_filtered_pu += track_angle_alpha * command_angle;
+                if(track_angle_filtered_pu >= 1.0f)
+                {
+                    track_angle_filtered_pu -= 1.0f;
+                }
+                else if(track_angle_filtered_pu < 0.0f)
+                {
+                    track_angle_filtered_pu += 1.0f;
+                }
+            }
+            open_angle_hold = motor_tune_get_open_angle_hold();
+            if((motor_tune_get_open_enable() == 0U) &&
+               (open_mode_last != 0U))
+            {
+                pid_clear(&mc.id_pid);
+                pid_clear(&mc.iq_pid);
+                mc.foc.id_lpf = mc.foc.id;
+                mc.foc.iq_lpf = mc.foc.iq;
+                current_output_initialized = 0U;
+            }
+
             if(motor_tune_get_speed_enable() != 0U)
             {
+                open_mode_last = 0U;
+                open_angle_hold_last = 0U;
+                current_angle_hold_last = 0U;
                 if(speed_mode_last == 0U)
                 {
                     pid_clear(&mc.spd_pid);
@@ -337,10 +407,13 @@ static void encoder_align_step(void)
                 speed_loop_step();
                 mc.id_pid.ref = 0.0f;
                 mc.e_angle.electrical_angle_set_pu =
-                    mc.e_angle.electrical_angle_pu;
+                    track_angle_filtered_pu;
             }
             else if(motor_tune_get_rotate_enable() != 0U)
             {
+                open_mode_last = 0U;
+                open_angle_hold_last = 0U;
+                current_angle_hold_last = 0U;
                 speed_mode_last = 0U;
                 speed_estimator_initialized = 0U;
                 command_angle = mc.e_angle.electrical_angle_set_pu +
@@ -353,12 +426,51 @@ static void encoder_align_step(void)
                 mc.id_pid.ref = motor_tune_get_rotate_id();
                 mc.iq_pid.ref = 0.0f;
             }
-            else
+            else if(motor_tune_get_open_enable() != 0U)
             {
                 speed_mode_last = 0U;
                 speed_estimator_initialized = 0U;
-                mc.e_angle.electrical_angle_set_pu =
-                    mc.e_angle.electrical_angle_pu;
+                current_angle_hold_last = 0U;
+                if((open_mode_last == 0U) ||
+                   ((open_angle_hold != 0U) &&
+                    (open_angle_hold_last == 0U)))
+                {
+                    open_angle_hold_pu = mc.e_angle.electrical_angle_pu;
+                    open_dither_phase = 0.0f;
+                }
+                if(open_angle_hold != 0U)
+                {
+                    mc.e_angle.electrical_angle_set_pu = open_angle_hold_pu;
+                }
+                else
+                {
+                    mc.e_angle.electrical_angle_set_pu =
+                        track_angle_filtered_pu;
+                }
+                open_mode_last = 1U;
+                open_angle_hold_last = open_angle_hold;
+            }
+            else
+            {
+                open_mode_last = 0U;
+                open_angle_hold_last = 0U;
+                speed_mode_last = 0U;
+                speed_estimator_initialized = 0U;
+                if(motor_tune_get_current_angle_hold() != 0U)
+                {
+                    if(current_angle_hold_last == 0U)
+                    {
+                        current_angle_hold_pu = track_angle_filtered_pu;
+                    }
+                    mc.e_angle.electrical_angle_set_pu = current_angle_hold_pu;
+                    current_angle_hold_last = 1U;
+                }
+                else
+                {
+                    mc.e_angle.electrical_angle_set_pu =
+                        track_angle_filtered_pu;
+                    current_angle_hold_last = 0U;
+                }
                 ramp_half_ticks = motor_tune_get_ramp_half_ticks();
                 ref_min = motor_tune_get_ref_min();
                 ref_max = motor_tune_get_ref_max();
@@ -392,13 +504,135 @@ static void encoder_align_step(void)
             clark_transform(&mc.foc);
             park_transform(&mc.foc);
 
-            mc.id_pid.fbk = mc.foc.id;
-            mc.iq_pid.fbk = mc.foc.iq;
-            pid_control(&mc.id_pid);
-            pid_control(&mc.iq_pid);
+            if(motor_tune_get_open_enable() != 0U)
+            {
+                if(motor_tune_get_open_sweep() != 0U)
+                {
+                    open_sweep_dwell = motor_tune_get_open_sweep_ticks();
+                    open_ramp_dwell = motor_tune_get_open_ramp_ticks();
+                    open_sweep_period =
+                        2U * (open_sweep_dwell + open_ramp_dwell);
+                    if(open_sweep_counter >= open_sweep_period)
+                    {
+                        open_sweep_counter = 0U;
+                    }
 
-            mc.foc.ud = mc.id_pid.out;
-            mc.foc.uq = mc.iq_pid.out;
+                    if(open_sweep_counter < open_sweep_dwell)
+                    {
+                        mc.foc.ud = motor_tune_get_open_ud_low();
+                    }
+                    else if(open_sweep_counter <
+                            (open_sweep_dwell + open_ramp_dwell))
+                    {
+                        if(open_ramp_dwell == 0U)
+                        {
+                            mc.foc.ud = motor_tune_get_open_ud_high();
+                        }
+                        else
+                        {
+                            mc.foc.ud = motor_tune_get_open_ud_low() +
+                                (motor_tune_get_open_ud_high() -
+                                 motor_tune_get_open_ud_low()) *
+                                ((float)(open_sweep_counter -
+                                         open_sweep_dwell) /
+                                 (float)open_ramp_dwell);
+                        }
+                    }
+                    else if(open_sweep_counter <
+                            (2U * open_sweep_dwell + open_ramp_dwell))
+                    {
+                        mc.foc.ud = motor_tune_get_open_ud_high();
+                    }
+                    else if(open_ramp_dwell == 0U)
+                    {
+                        mc.foc.ud = motor_tune_get_open_ud_low();
+                    }
+                    else
+                    {
+                        mc.foc.ud = motor_tune_get_open_ud_high() -
+                            (motor_tune_get_open_ud_high() -
+                             motor_tune_get_open_ud_low()) *
+                            ((float)(open_sweep_counter -
+                                     2U * open_sweep_dwell -
+                                     open_ramp_dwell) /
+                             (float)open_ramp_dwell);
+                    }
+                    open_sweep_counter++;
+                }
+                else
+                {
+                    open_sweep_counter = 0U;
+                    mc.foc.ud = motor_tune_get_open_ud();
+                }
+
+                open_dither_hz = motor_tune_get_open_dither_hz();
+                open_dither_ud = motor_tune_get_open_dither_ud();
+                if((open_dither_hz > 0.0f) && (open_dither_ud > 0.0f))
+                {
+                    open_dither_phase += open_dither_hz * TS;
+                    if(open_dither_phase >= 1.0f)
+                    {
+                        open_dither_phase -= 1.0f;
+                    }
+                    calculate_sin_cos(open_dither_phase,
+                                      &open_dither_sin,
+                                      &open_dither_cos);
+                    (void)open_dither_cos;
+                    mc.foc.ud += open_dither_ud * open_dither_sin;
+                }
+                else
+                {
+                    open_dither_phase = 0.0f;
+                }
+                mc.foc.uq = 0.0f;
+            }
+            else
+            {
+                mc.foc.id_lpf += mc.foc.id_lpf_factor *
+                                 (mc.foc.id - mc.foc.id_lpf);
+                mc.foc.iq_lpf += mc.foc.iq_lpf_factor *
+                                 (mc.foc.iq - mc.foc.iq_lpf);
+                mc.id_pid.fbk = mc.foc.id_lpf;
+                mc.iq_pid.fbk = mc.foc.iq_lpf;
+                current_deadband =
+                    (motor_tune_get_speed_enable() != 0U) ?
+                    0.0f : motor_tune_get_current_deadband();
+                if((current_deadband <= 0.0f) ||
+                   ((mc.id_pid.ref - mc.id_pid.fbk) > current_deadband) ||
+                   ((mc.id_pid.ref - mc.id_pid.fbk) < -current_deadband))
+                {
+                    pid_control(&mc.id_pid);
+                }
+                else
+                {
+                    mc.id_pid.err = mc.id_pid.ref - mc.id_pid.fbk;
+                    mc.id_pid.err_last = mc.id_pid.err;
+                }
+                if((current_deadband <= 0.0f) ||
+                   ((mc.iq_pid.ref - mc.iq_pid.fbk) > current_deadband) ||
+                   ((mc.iq_pid.ref - mc.iq_pid.fbk) < -current_deadband))
+                {
+                    pid_control(&mc.iq_pid);
+                }
+                else
+                {
+                    mc.iq_pid.err = mc.iq_pid.ref - mc.iq_pid.fbk;
+                    mc.iq_pid.err_last = mc.iq_pid.err;
+                }
+
+                if(current_output_initialized == 0U)
+                {
+                    id_output_filtered = mc.id_pid.out;
+                    iq_output_filtered = mc.iq_pid.out;
+                    current_output_initialized = 1U;
+                }
+                id_output_filtered += motor_tune_get_current_output_lpf() *
+                                      (mc.id_pid.out - id_output_filtered);
+                iq_output_filtered += motor_tune_get_current_output_lpf() *
+                                      (mc.iq_pid.out - iq_output_filtered);
+                mc.foc.ud = id_output_filtered;
+                mc.foc.uq = iq_output_filtered;
+            }
             mc.identify.verify_angle_deg =
                 mc.e_angle.electrical_angle_pu * 360.0f;
             mc.identify.verify_id = mc.foc.id;

@@ -67,8 +67,8 @@ void motor_struct_init(void)
     // ============================================================================
     // id_lpf_factor / iq_lpf_factor: d/q轴电流低通滤波系数（一阶滤波α值，0~1）
     //                             0.1表示滤波效果较强，响应稍慢
-    mc.foc.id_lpf_factor = 0.1f;
-    mc.foc.iq_lpf_factor = 0.1f;
+    mc.foc.id_lpf_factor = 0.05f;
+    mc.foc.iq_lpf_factor = 0.05f;
     // pwm_cycle: PWM周期（通常为定时器的自动重装载值），用于计算占空比
     mc.foc.pwm_cycle = PWM_CYCLE;
     // pwm_limit: PWM输出限幅值，防止占空比过大导致上下桥臂直通或过调制
@@ -187,12 +187,12 @@ void motor_struct_init(void)
     // 14. 电流环PID参数（Iq、Id环）
     // ============================================================================
     mc.iq_pid.kp = 0.08f;                    // 零速电流环调试增益
-    mc.iq_pid.ki = 0.006f;                   // 每个50us控制周期的积分系数
+    mc.iq_pid.ki = 0.006f * CURRENT_KI_SCALE;
     mc.iq_pid.out_max = 0.5f;
     mc.iq_pid.out_min = -0.5f;
 
     mc.id_pid.kp = 0.08f;
-    mc.id_pid.ki = 0.006f;
+    mc.id_pid.ki = 0.006f * CURRENT_KI_SCALE;
     mc.id_pid.out_max = 0.5f;
     mc.id_pid.out_min = -0.5f;
 

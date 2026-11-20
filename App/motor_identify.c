@@ -1,6 +1,8 @@
 
 #include "motor_identify.h"
 
+#define IDENTIFY_CURRENT_SETTLE_TICKS ((u16)(0.2f * CONTROL_TICKS_PER_SECOND))
+
 /**
  * 函数功能: 电机参数辨识（电阻、电感）及编码器转子对齐
  * 输入参数: 无（所有参数通过全局结构体 mc.identify、mc.foc、mc.sample、mc.e_angle 传递）
@@ -50,7 +52,7 @@ void motor_identify(void)
                 }
                 else
                 {
-                    mc.foc.ud += 0.0001f;       // 每次调用增加0.0001V（约0.1mV），逐步升压
+                    mc.foc.ud += CONTROL_VOLTAGE_STEP;
                     mc.identify.voltage_set[0] = mc.foc.ud;   // 记录第一次电压点
                 }
             }
@@ -58,12 +60,13 @@ void motor_identify(void)
             /* ----- 子状态 flag = 2：等待电流稳定，采样100次求平均（第一组电流）----- */
             if (mc.identify.flag == 2)
             {
-                mc.identify.wait_tim++;          // 计数器累加（每次函数调用约50~100us，需根据实际周期调整）
-                if (mc.identify.wait_tim > 4000) // 等待约0.2秒（假设周期50us，4000次=0.2s）
+                mc.identify.wait_tim++;          // 计数器累加，阈值按实际控制周期换算
+                if (mc.identify.wait_tim > IDENTIFY_CURRENT_SETTLE_TICKS)
                 {
                     mc.identify.cur_sum += mc.sample.current_mag;
                 }
-                if (mc.identify.wait_tim >= 4100) // 再采集100次（4100-4000=100次）
+                if (mc.identify.wait_tim >=
+                    (IDENTIFY_CURRENT_SETTLE_TICKS + 100U))
                 {
                     mc.identify.cur_average[0] = mc.identify.cur_sum * 0.01f; // 平均电流 = 累加和 / 100
                     mc.identify.wait_tim = 0;     // 计时器复位
@@ -82,7 +85,7 @@ void motor_identify(void)
                 }
                 else
                 {
-                    mc.foc.ud += 0.0001f;       // 继续升压
+                    mc.foc.ud += CONTROL_VOLTAGE_STEP;
                     mc.identify.voltage_set[1] = mc.foc.ud;   // 记录第二次电压点
                 }
             }
@@ -91,11 +94,12 @@ void motor_identify(void)
             if (mc.identify.flag == 4)
             {
                 mc.identify.wait_tim++;
-                if (mc.identify.wait_tim > 4000)
+                if (mc.identify.wait_tim > IDENTIFY_CURRENT_SETTLE_TICKS)
                 {
                     mc.identify.cur_sum += mc.sample.current_mag;
                 }
-                if (mc.identify.wait_tim >= 4100)
+                if (mc.identify.wait_tim >=
+                    (IDENTIFY_CURRENT_SETTLE_TICKS + 100U))
                 {
                     mc.identify.cur_average[1] = mc.identify.cur_sum * 0.01f; // 平均电流
                     mc.identify.wait_tim = 0;
@@ -149,8 +153,7 @@ void motor_identify(void)
                 {
                     // 电感计算公式：L = R * t / ln(1/(1-0.95)) = R * t / ln(20)
                     // ln(20) ≈ 2.9957，系数 0.334 = 1/2.9957 ≈ 0.334
-                    // 0.00005 为函数调用周期（假设周期50us），WaitTim为周期数，故 t = wait_tim * 0.00005
-                    mc.identify.ls_sum += mc.identify.rs * 0.334f * 0.00005f * mc.identify.wait_tim;
+                    mc.identify.ls_sum += mc.identify.rs * 0.334f * TS * mc.identify.wait_tim;
                     mc.identify.ls_time_sum += mc.identify.wait_tim;
                     mc.identify.wait_tim = 0;              // 计时器复位
                     mc.identify.count++;                  // 完成一次测量，计数器+1
@@ -188,7 +191,7 @@ void motor_identify(void)
             /* ----- 子状态 calib_flag = 0：第一次定位，将转子拉至90°电角度位置 ----- */
             if (mc.e_angle.calib_flag == 0)
             {
-                mc.foc.ud += 0.0001f;               // 逐步增加ud（d轴电压）
+                mc.foc.ud += CONTROL_VOLTAGE_STEP;
                 mc.foc.uq = 0;                      // q轴电压为0
                 mc.foc.sin_val = 1;                 // 设定电角度为90°：sin90°=1
                 mc.foc.cos_val = 0;                 // cos90°=0
@@ -204,7 +207,7 @@ void motor_identify(void)
             /* ----- 子状态 calib_flag = 1：第二次定位，将转子拉至0°电角度位置 ----- */
             if (mc.e_angle.calib_flag == 1)
             {
-                mc.foc.ud += 0.0001f;
+                mc.foc.ud += CONTROL_VOLTAGE_STEP;
                 mc.foc.uq = 0;
                 mc.foc.sin_val = 0;                 // 电角度0°：sin0°=0
                 mc.foc.cos_val = 1;                 // cos0°=1

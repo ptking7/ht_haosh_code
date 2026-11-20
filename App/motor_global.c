@@ -95,16 +95,61 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
 
 u16 encoder_data_get(void)
 {
-    static u16 encoder_val_last = 0;
+    static s32 encoder_history[3] = {0, 0, 0};
+    static u8 history_count = 0U;
+    static u8 history_index = 0U;
+    static u16 encoder_val_filtered = 0U;
+    s32 sample;
+    s32 median;
+    u8 i;
+    u8 j;
     u8 tx_data[2] = {0x00, 0x00};
     u8 rx_data[2] = {0x00, 0x00};
 
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
     if(HAL_SPI_TransmitReceive(&hspi3, tx_data, rx_data, 2, 1) == HAL_OK)
     {
-        encoder_val_last = ((u16)rx_data[0] << 8) | rx_data[1];
+        sample = ((s32)rx_data[0] << 8) | rx_data[1];
+        if(history_count != 0U)
+        {
+            if((sample - encoder_history[history_index]) > PUL_MAX_HALF)
+            {
+                sample -= ENCODER_COUNTS_PER_REV;
+            }
+            else if((sample - encoder_history[history_index]) <
+                    -(s32)PUL_MAX_HALF)
+            {
+                sample += ENCODER_COUNTS_PER_REV;
+            }
+        }
+
+        encoder_history[history_index] = sample;
+        history_index = (u8)((history_index + 1U) % 3U);
+        if(history_count < 3U)
+        {
+            history_count++;
+        }
+
+        median = sample;
+        for(i = 0U; i < history_count; i++)
+        {
+            u8 less = 0U;
+            for(j = 0U; j < history_count; j++)
+            {
+                if(encoder_history[j] < encoder_history[i])
+                {
+                    less++;
+                }
+            }
+            if(less == (u8)(history_count / 2U))
+            {
+                median = encoder_history[i];
+                break;
+            }
+        }
+        encoder_val_filtered = (u16)(median % ENCODER_COUNTS_PER_REV);
     }
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
 
-    return encoder_val_last;
+    return encoder_val_filtered;
 }

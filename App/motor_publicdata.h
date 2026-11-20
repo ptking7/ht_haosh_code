@@ -10,6 +10,7 @@
 #include "eangle_drv.h"
 #include "position_drv.h"
 #include "observer_drv.h"
+#include "motor_pwm_config.h"
 
 #define LOW_RESITOR        10.0f    //母线电压检测下端电阻(KΩ)
 #define HIGH_RESITOR       169.0f   //母线电压检测上端电阻(KΩ)
@@ -17,10 +18,6 @@
 #define MAGNIFICATION      (100.0f / 4.99f) //采样放大倍数
 #define ADC_RESOLUTION     4096.0f  //ADC分辨率
 #define ADC_VREF           3.3f     //ADC基准电压（V）
-#define PWM_LIMLT          7800     //限制最大占空比
-#define PWM_CYCLE          8500     //中心对齐PWM等效周期(2*TIM1 ARR)
-#define TS                 0.00005f //FOC执行间隔（S）
-
 #define VBUS_FACTOR            ((ADC_VREF / ADC_RESOLUTION) / (LOW_RESITOR / (LOW_RESITOR + HIGH_RESITOR))) // 母线电压计算系数
 #define PHASE_CURRENT_FACTOR   ((ADC_VREF / ADC_RESOLUTION) / MAGNIFICATION / SAMPLING_RESITOR)             // 相电流计算系数
 
