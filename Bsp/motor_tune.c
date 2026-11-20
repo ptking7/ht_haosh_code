@@ -8,7 +8,8 @@
 #define RAMP_HALF_DEFAULT_TICKS ((u16)(500.0f * CONTROL_TICKS_PER_MS))
 #define OPEN_SWEEP_DEFAULT_TICKS ((u32)(2000.0f * CONTROL_TICKS_PER_MS))
 #define OPEN_RAMP_DEFAULT_TICKS ((u32)(100.0f * CONTROL_TICKS_PER_MS))
-#define SPEED_WINDOW_DEFAULT_TICKS ((u16)(20.0f * CONTROL_TICKS_PER_MS))
+#define SPEED_WINDOW_DEFAULT_TICKS ((u16)(100.0f * CONTROL_TICKS_PER_MS))
+#define SPEED_COMMAND_MAX_RPM 50.0f
 
 static volatile u8 rx_buffer[MOTOR_TUNE_RX_SIZE];
 static volatile u16 rx_head = 0;
@@ -24,12 +25,14 @@ static u8 rotate_enable = 0U;
 static float rotate_hz = 0.50f;
 static float rotate_id = 0.20f;
 static float track_angle_lpf = 0.0002f;
+static float speed_angle_lpf = 0.005f;
 static float current_output_lpf = 1.0f;
 static float current_deadband = 0.12f;
 static u8 current_angle_hold = 1U;
 static u8 speed_enable = 0U;
 static u16 speed_window_ticks = SPEED_WINDOW_DEFAULT_TICKS;
 static float speed_rpm = 0.05f;
+static float speed_ramp_rpm_s = 0.35f;
 static float speed_ff = 0.45f;
 static float speed_min_current = 0.40f;
 static u8 open_enable = 0U;
@@ -153,6 +156,18 @@ static void process_command(void)
         }
         track_angle_lpf = number;
     }
+    else if(key_equals(key, "SPD_ANGLE_LPF") && number > 0.0f)
+    {
+        if(number > 1.0f)
+        {
+            number = 1.0f;
+        }
+        if(number < 0.00005f)
+        {
+            number = 0.00005f;
+        }
+        speed_angle_lpf = number;
+    }
     else if(key_equals(key, "CURRENT_OUT_LPF") && number > 0.0f)
     {
         if(number > 1.0f)
@@ -193,13 +208,13 @@ static void process_command(void)
     }
     else if(key_equals(key, "SPEED_RPM"))
     {
-        if(number > 5.0f)
+        if(number > SPEED_COMMAND_MAX_RPM)
         {
-            number = 5.0f;
+            number = SPEED_COMMAND_MAX_RPM;
         }
-        if(number < -5.0f)
+        if(number < -SPEED_COMMAND_MAX_RPM)
         {
-            number = -5.0f;
+            number = -SPEED_COMMAND_MAX_RPM;
         }
         speed_rpm = number;
     }
@@ -214,6 +229,14 @@ static void process_command(void)
         {
             speed_window_ticks = 100U;
         }
+    }
+    else if(key_equals(key, "SPD_RAMP_RPM_S") && number >= 0.0f)
+    {
+        if(number > 10.0f)
+        {
+            number = 10.0f;
+        }
+        speed_ramp_rpm_s = number;
     }
     else if(key_equals(key, "SPD_KP") && number >= 0.0f)
     {
@@ -330,12 +353,14 @@ void motor_tune_init(void)
     rotate_hz = 0.50f;
     rotate_id = 0.20f;
     track_angle_lpf = 0.0002f;
+    speed_angle_lpf = 0.005f;
     current_output_lpf = 1.0f;
     current_deadband = 0.12f;
     current_angle_hold = 1U;
     speed_enable = 0U;
     speed_window_ticks = SPEED_WINDOW_DEFAULT_TICKS;
     speed_rpm = 0.05f;
+    speed_ramp_rpm_s = 0.35f;
     speed_ff = 0.45f;
     speed_min_current = 0.40f;
     open_enable = 0U;
@@ -434,6 +459,11 @@ float motor_tune_get_track_angle_lpf(void)
     return track_angle_lpf;
 }
 
+float motor_tune_get_speed_angle_lpf(void)
+{
+    return speed_angle_lpf;
+}
+
 float motor_tune_get_current_output_lpf(void)
 {
     return current_output_lpf;
@@ -457,6 +487,11 @@ u8 motor_tune_get_speed_enable(void)
 u16 motor_tune_get_speed_window_ticks(void)
 {
     return speed_window_ticks;
+}
+
+float motor_tune_get_speed_ramp_rpm_s(void)
+{
+    return speed_ramp_rpm_s;
 }
 
 float motor_tune_get_speed_rpm(void)

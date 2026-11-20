@@ -29,7 +29,6 @@
 #define CURRENT_LOOP_SETTLE_TICKS      ((u16)(0.5f * CONTROL_TICKS_PER_SECOND))
 #define CURRENT_LOOP_TEST_ID_REF       0.30f
 #define SPEED_FEEDBACK_LPF             0.15f
-#define OUTPUT_GEAR_RATIO              9.0f
 #define SPEED_IQ_RATE_LIMIT            0.02f
 #define FIXED_UD_TEST_ENABLE           0
 #define FIXED_UD_TEST_VOLTAGE          0.25f
@@ -46,6 +45,7 @@ static u16 speed_angle_count = 0;
 static float speed_angle_accum = 0.0f;
 static float speed_angle_last = 0.0f;
 static float speed_feedback_rpm = 0.0f;
+static float speed_reference_ramped = 0.0f;
 static u32 open_sweep_counter = 0;
 static u8 open_mode_last = 0U;
 static u8 open_angle_hold_last = 0U;
@@ -71,6 +71,8 @@ static void speed_loop_step(void)
     float output_rpm;
     float iq_delta;
     float speed_target;
+    float speed_target_final;
+    float speed_ramp_step;
     float min_current;
     u16 speed_window_ticks = motor_tune_get_speed_window_ticks();
 
@@ -98,6 +100,30 @@ static void speed_loop_step(void)
 
     if(speed_angle_count >= speed_window_ticks)
     {
+        speed_target_final = motor_tune_get_speed_rpm();
+        speed_ramp_step = motor_tune_get_speed_ramp_rpm_s() *
+                          ((float)speed_angle_count * TS);
+        if(speed_ramp_step <= 0.0f)
+        {
+            speed_reference_ramped = speed_target_final;
+        }
+        else if(speed_reference_ramped < speed_target_final)
+        {
+            speed_reference_ramped += speed_ramp_step;
+            if(speed_reference_ramped > speed_target_final)
+            {
+                speed_reference_ramped = speed_target_final;
+            }
+        }
+        else if(speed_reference_ramped > speed_target_final)
+        {
+            speed_reference_ramped -= speed_ramp_step;
+            if(speed_reference_ramped < speed_target_final)
+            {
+                speed_reference_ramped = speed_target_final;
+            }
+        }
+
         electrical_hz = speed_angle_accum /
                         ((float)speed_angle_count * TS);
         motor_rpm = electrical_hz * 60.0f /
@@ -109,11 +135,11 @@ static void speed_loop_step(void)
         mc.speed.electrical_speed_lpf = electrical_hz;
         mc.speed.mechanical_speed = speed_feedback_rpm;
 
-        mc.spd_pid.ref = motor_tune_get_speed_rpm();
+        mc.spd_pid.ref = speed_reference_ramped;
         mc.spd_pid.fbk = speed_feedback_rpm;
         pid_control(&mc.spd_pid);
 
-        speed_target = motor_tune_get_speed_rpm();
+        speed_target = speed_reference_ramped;
         min_current = motor_tune_get_speed_min_current();
         if((speed_target > 0.0f) &&
            (speed_feedback_rpm < speed_target) &&
@@ -366,7 +392,14 @@ static void encoder_align_step(void)
                 {
                     command_angle += 1.0f;
                 }
-                track_angle_alpha = motor_tune_get_track_angle_lpf();
+                if(motor_tune_get_speed_enable() != 0U)
+                {
+                    track_angle_alpha = motor_tune_get_speed_angle_lpf();
+                }
+                else
+                {
+                    track_angle_alpha = motor_tune_get_track_angle_lpf();
+                }
                 track_angle_filtered_pu += track_angle_alpha * command_angle;
                 if(track_angle_filtered_pu >= 1.0f)
                 {
@@ -398,6 +431,7 @@ static void encoder_align_step(void)
                     pid_clear(&mc.spd_pid);
                     mc.spd_pid.integrate = motor_tune_get_speed_ff();
                     mc.iq_pid.ref = motor_tune_get_speed_ff();
+                    speed_reference_ramped = speed_feedback_rpm;
                     speed_mode_last = 1U;
                 }
                 speed_loop_step();

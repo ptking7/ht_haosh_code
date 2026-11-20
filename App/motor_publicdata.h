@@ -99,6 +99,7 @@ typedef enum{
 #define CCW 1                        //编码器逆时针方向
                        
 #define POLEPAIRS   14               //默认极对数
+#define OUTPUT_GEAR_RATIO 9.0f       //输出轴/电机轴减速比
 #define ACCELERATION 4800            //默认加速度(rpm/s)
 
 #define ENCODER_COUNTS_PER_REV 65536U       //编码器单圈计数模值
