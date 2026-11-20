@@ -19,6 +19,7 @@ float motor_tune_get_current_output_lpf(void);
 float motor_tune_get_current_deadband(void);
 u8 motor_tune_get_current_angle_hold(void);
 u8 motor_tune_get_speed_enable(void);
+u16 motor_tune_get_speed_window_ticks(void);
 float motor_tune_get_speed_rpm(void);
 float motor_tune_get_speed_ff(void);
 float motor_tune_get_speed_min_current(void);

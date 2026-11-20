@@ -17,10 +17,10 @@
 
 #define IDENTIFY_BUS_MIN_VOLTAGE       10.0f
 #define IDENTIFY_BUS_MAX_VOLTAGE       55.0f
-#define IDENTIFY_PHASE_OVERCURRENT     2.5f
+#define IDENTIFY_PHASE_OVERCURRENT     10.0f
 #define IDENTIFY_OVERCURRENT_TICKS     ((u8)(0.25f * CONTROL_TICKS_PER_MS))
 #define IDENTIFY_BUS_FAULT_TICKS       ((u8)(1.0f * CONTROL_TICKS_PER_MS))
-#define IDENTIFY_MAX_UD_VOLTAGE        0.50f
+#define IDENTIFY_MAX_UD_VOLTAGE        2.50f
 #define IDENTIFY_TIMEOUT_TICKS         ((u32)(30.0f * CONTROL_TICKS_PER_SECOND))
 #define IDENTIFY_PWM_START_DELAY_TICKS ((u32)(10.0f * CONTROL_TICKS_PER_SECOND))
 #define ENCODER_ALIGN_HOLD_TICKS       ((u16)(1.0f * CONTROL_TICKS_PER_SECOND))
@@ -28,7 +28,6 @@
 #define ENCODER_VERIFY_UD              0.30f
 #define CURRENT_LOOP_SETTLE_TICKS      ((u16)(0.5f * CONTROL_TICKS_PER_SECOND))
 #define CURRENT_LOOP_TEST_ID_REF       0.30f
-#define SPEED_LOOP_DIVIDER             ((u16)(0.02f * CONTROL_TICKS_PER_SECOND))
 #define SPEED_FEEDBACK_LPF             0.15f
 #define OUTPUT_GEAR_RATIO              9.0f
 #define SPEED_IQ_RATE_LIMIT            0.02f
@@ -65,7 +64,7 @@ static u32 fixed_ud_test_ticks = 0;
 
 static void speed_loop_step(void)
 {
-    float angle = mc.e_angle.electrical_angle_pu;
+    float angle = track_angle_filtered_pu;
     float delta;
     float electrical_hz;
     float motor_rpm;
@@ -73,6 +72,7 @@ static void speed_loop_step(void)
     float iq_delta;
     float speed_target;
     float min_current;
+    u16 speed_window_ticks = motor_tune_get_speed_window_ticks();
 
     if(speed_estimator_initialized == 0U)
     {
@@ -96,7 +96,7 @@ static void speed_loop_step(void)
     speed_angle_accum += delta;
     speed_angle_count++;
 
-    if(speed_angle_count >= SPEED_LOOP_DIVIDER)
+    if(speed_angle_count >= speed_window_ticks)
     {
         electrical_hz = speed_angle_accum /
                         ((float)speed_angle_count * TS);
@@ -367,10 +367,6 @@ static void encoder_align_step(void)
                     command_angle += 1.0f;
                 }
                 track_angle_alpha = motor_tune_get_track_angle_lpf();
-                if(motor_tune_get_speed_enable() != 0U)
-                {
-                    track_angle_alpha = 1.0f;
-                }
                 track_angle_filtered_pu += track_angle_alpha * command_angle;
                 if(track_angle_filtered_pu >= 1.0f)
                 {

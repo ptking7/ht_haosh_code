@@ -8,6 +8,7 @@
 #define RAMP_HALF_DEFAULT_TICKS ((u16)(500.0f * CONTROL_TICKS_PER_MS))
 #define OPEN_SWEEP_DEFAULT_TICKS ((u32)(2000.0f * CONTROL_TICKS_PER_MS))
 #define OPEN_RAMP_DEFAULT_TICKS ((u32)(100.0f * CONTROL_TICKS_PER_MS))
+#define SPEED_WINDOW_DEFAULT_TICKS ((u16)(20.0f * CONTROL_TICKS_PER_MS))
 
 static volatile u8 rx_buffer[MOTOR_TUNE_RX_SIZE];
 static volatile u16 rx_head = 0;
@@ -27,6 +28,7 @@ static float current_output_lpf = 1.0f;
 static float current_deadband = 0.12f;
 static u8 current_angle_hold = 1U;
 static u8 speed_enable = 0U;
+static u16 speed_window_ticks = SPEED_WINDOW_DEFAULT_TICKS;
 static float speed_rpm = 0.05f;
 static float speed_ff = 0.45f;
 static float speed_min_current = 0.40f;
@@ -201,6 +203,18 @@ static void process_command(void)
         }
         speed_rpm = number;
     }
+    else if(key_equals(key, "SPD_WINDOW_MS") && number > 0.0f)
+    {
+        if(number > 500.0f)
+        {
+            number = 500.0f;
+        }
+        speed_window_ticks = (u16)(number * CONTROL_TICKS_PER_MS);
+        if(speed_window_ticks < 100U)
+        {
+            speed_window_ticks = 100U;
+        }
+    }
     else if(key_equals(key, "SPD_KP") && number >= 0.0f)
     {
         mc.spd_pid.kp = number;
@@ -320,6 +334,7 @@ void motor_tune_init(void)
     current_deadband = 0.12f;
     current_angle_hold = 1U;
     speed_enable = 0U;
+    speed_window_ticks = SPEED_WINDOW_DEFAULT_TICKS;
     speed_rpm = 0.05f;
     speed_ff = 0.45f;
     speed_min_current = 0.40f;
@@ -437,6 +452,11 @@ u8 motor_tune_get_current_angle_hold(void)
 u8 motor_tune_get_speed_enable(void)
 {
     return speed_enable;
+}
+
+u16 motor_tune_get_speed_window_ticks(void)
+{
+    return speed_window_ticks;
 }
 
 float motor_tune_get_speed_rpm(void)
